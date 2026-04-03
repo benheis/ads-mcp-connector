@@ -77,11 +77,26 @@ echo -e "  Default: $DEFAULT_INSTALL_DIR"
 echo -e "  Press Enter to use the default, or type a different path."
 echo ""
 # Read from /dev/tty explicitly so this works when piped via curl | bash
-read -r -p "  Install path: " USER_DIR </dev/tty || true
-INSTALL_DIR="${USER_DIR:-$DEFAULT_INSTALL_DIR}"
+if read -r -p "  Install path: " USER_DIR </dev/tty 2>/dev/null; then
+  INSTALL_DIR="${USER_DIR:-$DEFAULT_INSTALL_DIR}"
+else
+  INSTALL_DIR="$DEFAULT_INSTALL_DIR"
+fi
+
+# Expand ~ and ensure we always have a value
 INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
+INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
+
+# Bail out if still empty (should never happen, but be safe)
+if [[ -z "$INSTALL_DIR" ]]; then
+  INSTALL_DIR="$DEFAULT_INSTALL_DIR"
+fi
+
 echo ""
 info "Installing to: $INSTALL_DIR"
+
+# Create parent directory before cloning
+mkdir -p "$(dirname "$INSTALL_DIR")"
 
 # ─── Step 3: Clone or update repo ────────────────────────────────────────────
 
