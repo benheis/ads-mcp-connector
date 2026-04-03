@@ -23,7 +23,19 @@ import meta_ads
 import google_ads
 
 
-def print_status():
+def _next_step_message(platform: str) -> tuple[str, str]:
+    """Return (single-line hint, connect command) based on platform choice."""
+    if platform == "1":   # Claude Code
+        return ("Open a terminal, type: claude", "then type: /ads-connect")
+    elif platform == "2": # Claude Desktop / Cowork
+        return ("Quit and reopen Claude Desktop,", "then ask: Connect my Meta Ads account")
+    elif platform == "3": # Cursor
+        return ("Quit and reopen Cursor, open Agent mode (Cmd+I),", "then ask: Connect my Meta Ads account")
+    else:
+        return ("Open your AI tool and", "ask it to connect your ad accounts")
+
+
+def print_status(platform: str = ""):
     meta = meta_ads.check_connection()
     google = google_ads.check_connection()
 
@@ -85,23 +97,32 @@ def print_status():
     meta_ok = meta.get("configured") and meta.get("token_test") == "ok"
     google_ok = google.get("configured") and google.get("token_test") == "ok"
 
+    hint, cmd = _next_step_message(platform)
     if meta_ok and google_ok:
         print()
-        print("  Both platforms connected. Open Claude Code")
-        print("  and ask about your campaigns.")
+        print("  Both platforms connected.")
+        print(f"  {hint}")
+        print(f"  {cmd}")
     elif meta_ok or google_ok:
         connected = "Meta Ads" if meta_ok else "Google Ads"
         missing_p = "Google Ads" if meta_ok else "Meta Ads"
         print()
         print(f"  {connected} is connected.")
-        print(f"  Run /ads-connect to add {missing_p}.")
+        print(f"  {missing_p} is not connected yet.")
+        print(f"  {hint}")
+        print(f"  {cmd}")
     else:
         print()
         print("  No platforms connected yet.")
-        print("  Open Claude Code and type /ads-connect")
+        print(f"  {hint}")
+        print(f"  {cmd}")
 
     print()
 
 
 if __name__ == "__main__":
-    print_status()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--platform", default="", help="1=Claude Code, 2=Claude Desktop, 3=Cursor")
+    args = parser.parse_args()
+    print_status(platform=args.platform)

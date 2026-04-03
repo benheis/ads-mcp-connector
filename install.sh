@@ -289,7 +289,7 @@ fi
 # ─── Step 10: Connection status ──────────────────────────────────────────────
 
 echo ""
-"$VENV_PYTHON" "$INSTALL_DIR/auth_check.py"
+"$VENV_PYTHON" "$INSTALL_DIR/auth_check.py" --platform "$PLATFORM_CHOICE"
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
 
@@ -327,8 +327,7 @@ fi
 
 # ── Claude Desktop / Cowork ──────────────────────────────────────────────────
 if [[ "$PLATFORM_CHOICE" == "2" || "$PLATFORM_CHOICE" == "4" ]]; then
-  echo ""
-  echo -e "  ─────────────────────────────────────────────"
+  [[ "$PLATFORM_CHOICE" == "4" ]] && echo -e "  ─────────────────────────────────────────────"
   echo ""
   echo -e "  ${BOLD}${CYAN}CLAUDE DESKTOP / COWORK${RESET}"
   echo ""
@@ -352,8 +351,7 @@ fi
 
 # ── Cursor ───────────────────────────────────────────────────────────────────
 if [[ "$PLATFORM_CHOICE" == "3" || "$PLATFORM_CHOICE" == "4" ]]; then
-  echo ""
-  echo -e "  ─────────────────────────────────────────────"
+  [[ "$PLATFORM_CHOICE" == "4" ]] && echo -e "  ─────────────────────────────────────────────"
   echo ""
   echo -e "  ${BOLD}${CYAN}CURSOR${RESET}"
   echo ""
