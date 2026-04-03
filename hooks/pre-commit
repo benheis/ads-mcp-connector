@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# pre-commit — API key scanner for ads-mcp-connector
+#
+# Auto-installed by install.sh to .git/hooks/pre-commit
+# Runs automatically before every git commit.
+# Blocks the commit if credentials are found in staged files.
+
+REPO_DIR="$(git rev-parse --show-toplevel 2>/dev/null)"
+SCRIPT="$REPO_DIR/secrets_check.py"
+
+if [[ ! -f "$SCRIPT" ]]; then
+  # Scanner not found — warn but don't block
+  echo "[ads-mcp-connector] Warning: secrets_check.py not found, skipping scan."
+  exit 0
+fi
+
+# Find python — prefer the venv if it exists
+PYTHON="$REPO_DIR/venv/bin/python"
+if [[ ! -x "$PYTHON" ]]; then
+  PYTHON="$(command -v python3 || command -v python)"
+fi
+
+if [[ -z "$PYTHON" ]]; then
+  echo "[ads-mcp-connector] Warning: Python not found, skipping credential scan."
+  exit 0
+fi
+
+"$PYTHON" "$SCRIPT" --staged-only
+exit $?

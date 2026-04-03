@@ -1,0 +1,12 @@
+# MCP SDK — matches existing dex pattern
+mcp>=1.0.0,<2.0.0
+
+# Environment variable loading
+python-dotenv>=1.0.0
+
+# HTTP client for Meta Graph API
+requests>=2.31.0
+
+# Google Ads
+google-ads>=24.0.0
+google-auth-oauthlib>=1.2.0
