@@ -48,6 +48,19 @@ async def list_tools() -> list[Tool]:
             inputSchema={"type": "object", "properties": {}, "required": []},
         ),
         Tool(
+            name="exchange_meta_token",
+            description="Exchange a short-lived Meta access token (valid 1 hour) for a long-lived token (valid 60 days). Call this instead of having the user run a curl command. Requires app_id and app_secret collected earlier in the /ads-connect flow.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "app_id": {"type": "string", "description": "Meta App ID from developers.facebook.com"},
+                    "app_secret": {"type": "string", "description": "Meta App Secret from App Settings → Basic"},
+                    "short_lived_token": {"type": "string", "description": "Short-lived access token from Graph API Explorer (valid 1 hour)"},
+                },
+                "required": ["app_id", "app_secret", "short_lived_token"],
+            },
+        ),
+        Tool(
             name="write_env_vars",
             description="Save API credentials to the .env file. Used during /ads-connect setup. Only writes allowlisted keys.",
             inputSchema={
@@ -226,6 +239,11 @@ def _dispatch(name: str, args: dict) -> dict:
         google_status = google_ads.check_connection()
         return {"meta": meta_status, "google": google_status}
 
+    if name == "exchange_meta_token":
+        return _exchange_meta_token(
+            args["app_id"], args["app_secret"], args["short_lived_token"]
+        )
+
     if name == "write_env_vars":
         return _write_env_vars(args.get("vars", {}))
 
@@ -297,6 +315,8 @@ def _dispatch(name: str, args: dict) -> dict:
 ALLOWED_ENV_KEYS = {
     "META_ACCESS_TOKEN",
     "META_AD_ACCOUNT_ID",
+    "META_APP_ID",
+    "META_APP_SECRET",
     "GOOGLE_DEVELOPER_TOKEN",
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
@@ -304,6 +324,38 @@ ALLOWED_ENV_KEYS = {
     "GOOGLE_CUSTOMER_ID",
     "GOOGLE_LOGIN_CUSTOMER_ID",
 }
+
+
+def _exchange_meta_token(app_id: str, app_secret: str, short_lived_token: str) -> dict:
+    """Exchange a short-lived Meta token for a 60-day long-lived token."""
+    url = "https://graph.facebook.com/v19.0/oauth/access_token"
+    params = {
+        "grant_type": "fb_exchange_token",
+        "client_id": app_id,
+        "client_secret": app_secret,
+        "fb_exchange_token": short_lived_token,
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+        data = resp.json()
+    except Exception as e:
+        return {"error": "REQUEST_FAILED", "message": str(e)}
+
+    if "access_token" in data:
+        token = data["access_token"]
+        masked = f"...{token[-4:]}" if len(token) > 4 else "****"
+        return {
+            "long_lived_token": token,
+            "masked": masked,
+            "expires_in_days": 60,
+        }
+
+    err = data.get("error", {})
+    return {
+        "error": "EXCHANGE_FAILED",
+        "message": err.get("message", str(data)),
+        "code": err.get("code"),
+    }
 
 
 def _write_env_vars(vars_dict: dict) -> dict:

@@ -116,11 +116,12 @@ For data questions ("how are my campaigns", "show me spend", "what's my ROAS"):
   ad accounts live — business.facebook.com)
 
   ①  Yes, I'm an admin
-     Fastest path — 5 minutes, token never expires
+     Best path — token never expires. Takes
+     about 10 min the first time.
 
   ②  No / not sure
-     Takes ~15 min, token needs renewal every
-     60 days. You may need help from your admin.
+     Token needs renewal every 60 days.
+     You may need help from your admin.
 ```
 
 Wait for response.
@@ -134,21 +135,84 @@ Wait for the user to confirm each step before proceeding to the next.
 
 ```
   META ADS — SYSTEM USER SETUP (Path A)
-  Step 1 of 4
+  Step 1 of 5
 
   ─────────────────────────────────────────────
 
-  OPEN META BUSINESS SETTINGS
+  DO YOU HAVE A META DEVELOPER APP?
 
-  Go to: business.facebook.com/settings
+  Generating a token requires a Meta developer
+  app. Think of it as a registered integration
+  that Meta lets make API calls on your behalf.
 
-  (Business Manager is where Meta organizes
-  all your ad accounts, pages, and team access.
-  Think of it like the admin panel for your
-  business on Meta.)
+  Many businesses already have one — if your
+  team has done any Facebook/Instagram API
+  work, or uses a tool like a CRM integration,
+  you likely already have an app.
 
-  In the left sidebar, scroll down to
-  "System Users" under the Users section.
+  To check: developers.facebook.com/apps
+
+  Do you see any apps listed there?
+
+  ①  Yes, I have an app
+     (Ideally a "Business" type app with
+     Marketing API added to it)
+
+  ②  No apps, or not sure — I need to create one
+```
+
+If they already have an app with Marketing API, skip to Step 3.
+If they need to create one, continue to Step 2.
+
+```
+  META ADS — SYSTEM USER SETUP
+  Step 2 of 5
+
+  ─────────────────────────────────────────────
+
+  CREATE A DEVELOPER APP
+
+  Go to: developers.facebook.com/apps
+
+  Click "Create App".
+
+  ① For use case, select "Other"
+     then click Next
+
+  ② For app type, select "Business"
+     then click Next
+
+  ③ Give it a name like "Claude Ads Connector"
+     and connect it to your Business Manager
+     account
+
+  ④ Once the app is created, look for the
+     "Add Products to Your App" section
+     Find "Marketing API" and click "Set Up"
+
+  That's it — no review process needed for
+  accessing your own ad accounts.
+
+  → Tell me when Marketing API is added to
+    the app.
+```
+
+```
+  META ADS — SYSTEM USER SETUP
+  Step 3 of 5
+
+  ─────────────────────────────────────────────
+
+  OPEN SYSTEM USERS IN BUSINESS MANAGER
+
+  Go to: business.facebook.com
+
+  Click the gear icon (Settings) in the
+  left sidebar.
+
+  In Business Settings, look for the
+  "Users" section in the left panel.
+  Click "System Users".
 
   → Tell me when you can see the System Users
     page, or type "skip" if you can't find it.
@@ -156,7 +220,7 @@ Wait for the user to confirm each step before proceeding to the next.
 
 ```
   META ADS — SYSTEM USER SETUP
-  Step 2 of 4
+  Step 4 of 5
 
   ─────────────────────────────────────────────
 
@@ -167,40 +231,30 @@ Wait for the user to confirm each step before proceeding to the next.
   Name it something clear like:
   "Claude Ads Connector"
 
-  Set the role to "Analyst"
-  (Analyst = read-only access. It can see
-  your data but cannot create, edit, or
-  delete anything.)
+  Set the role to "Employee".
+  (Employee = limited access. It can only
+  see what you explicitly give it access to —
+  it cannot create or delete anything.)
 
   Click Save.
 
-  → Tell me when the System User is created.
-```
-
-```
-  META ADS — SYSTEM USER SETUP
-  Step 3 of 4
-
-  ─────────────────────────────────────────────
-
-  ASSIGN YOUR AD ACCOUNTS
-
-  With your new System User selected, click
-  "Add Assets".
+  Next, click "Add Assets" on the new
+  System User.
 
   Choose "Ad Accounts" from the list and
   select the ad account(s) you want Claude
   to access.
 
-  Set the permission level to "Analyst"
-  (read-only is all we need).
+  Set the permission to allow viewing/
+  reporting on ads (not editing).
 
-  → Tell me when the ad account is assigned.
+  → Tell me when the System User is created
+    and the ad account is assigned.
 ```
 
 ```
   META ADS — SYSTEM USER SETUP
-  Step 4 of 4
+  Step 5 of 5
 
   ─────────────────────────────────────────────
 
@@ -209,14 +263,23 @@ Wait for the user to confirm each step before proceeding to the next.
   With your System User selected, click
   "Generate New Token".
 
-  In the token permissions, make sure these
-  are checked:
+  A dropdown will ask you to select an app.
+  Choose the developer app you set up in
+  Step 2 (or your existing app).
+
+  If you see "no permissions available":
+  → The app needs Marketing API added to it.
+    Go back to developers.facebook.com/apps,
+    open the app, and add Marketing API under
+    "Add Products". Then return here and
+    try again.
+
+  Once permissions load, check these two:
   ├── ads_read
   └── ads_management
 
   For expiration, select "Never".
-  (This means you won't need to renew it —
-  the connection just keeps working.)
+  (This means you won't need to renew it.)
 
   Click Generate Token.
 
@@ -270,7 +333,7 @@ On success:
 
   ✓  Account: {account_name}
   ✓  ID:      act_{account_id}
-  ✓  Token:   never expires (System User)
+  ✓  Token:   never expires (System User token)
 
   Quick look at the last 30 days:
   ├── Spend:        ${spend}
@@ -295,62 +358,169 @@ For users who don't have Business Manager admin access.
 
 ```
   META ADS — DEVELOPER TOKEN SETUP (Path B)
-  Step 1 of 5
+  Step 1 of 4
 
   ─────────────────────────────────────────────
 
   WHAT WE'RE DOING
 
-  We're going to create a developer access
-  token through Meta's official developer
-  tools. It takes about 15 minutes.
+  We're going to create an access token
+  through Meta's Graph API Explorer.
+  It takes about 15 minutes.
 
   This token will expire every 60 days and
   need to be renewed. If you can get admin
   access to Business Manager later, the
-  System User approach is much simpler.
+  System User approach is better long-term.
 
   For now — let's get you connected.
 
-  You'll need a Facebook account to start.
-  Do you have one?
+  First: do you have a Meta developer app?
+  Check at: developers.facebook.com/apps
 
-  ①  Yes, I have a Facebook account
-  ②  No — I'll need to create one first
+  ①  Yes, I have an app with Marketing API
+  ②  No — I need to create one first
 ```
 
-If they have an account, walk through:
-1. Create Meta Developer account at developers.facebook.com (phone verification required)
-2. Create a new App → Business type → connect to Business Manager
-3. Add "Marketing API" product to the app
-4. Graph API Explorer → select app → add permissions (ads_read, ads_management, business_management)
-5. Generate Access Token → Exchange for Long-Lived Token
-
-Key instructions for Step 5 — exchange for long-lived token:
-
+If they need to create an app, show:
 ```
-  Step 5 of 5 — EXTEND YOUR TOKEN
+  META ADS — PATH B
+  Step 2a of 4 — CREATE A DEVELOPER APP
 
   ─────────────────────────────────────────────
 
-  The token you just generated lasts 1 hour.
-  We need to exchange it for a 60-day token.
+  Go to: developers.facebook.com/apps
 
-  In the Graph API Explorer, look for a small
-  blue link that says "Exchange Token" or
-  "Get Long-Lived User Access Token" below
-  the token field.
+  Click "Create App".
 
-  Click it and follow the prompt.
+  Meta will ask you to pick a use case.
+  Select "Other" — it's the last option
+  in the list. Click Next.
 
-  The new token will replace the old one in
-  the text field. Copy the new token.
+  Then select the app type.
+  Select "Business". Click Next.
 
-  → Paste your 60-day token here.
+  Give it a name like "Claude Ads Connector".
+  If prompted, connect it to your Business
+  Manager. Click Create App.
 
-  I'll remind you to renew it before it
-  expires.
+  Once you're inside the app dashboard,
+  look for "Add Products to Your App".
+  Find "Marketing API" and click "Set Up".
+
+  → Tell me when you see the app dashboard
+    with Marketing API listed.
 ```
+
+Once the app exists (created now or confirmed earlier), show:
+```
+  META ADS — PATH B
+  Step 2b of 4 — GRAB YOUR APP CREDENTIALS
+
+  ─────────────────────────────────────────────
+
+  While you're in the app dashboard, we need
+  two values. Get them now — we'll use them
+  shortly to upgrade your token automatically
+  (no terminal commands needed).
+
+  In the left sidebar, click:
+  "App settings" → "Basic"
+
+  You'll see:
+  ├── App ID      (a number, like 1234567890)
+  └── App secret  (click "Show" to reveal it)
+
+  → Paste both here, one per line.
+    App ID first, then App Secret.
+```
+
+After receiving both, call write_env_vars with META_APP_ID and META_APP_SECRET.
+
+Then show Graph API Explorer step:
+```
+  META ADS — PATH B
+  Step 3 of 4 — GET YOUR SHORT-LIVED TOKEN
+
+  ─────────────────────────────────────────────
+
+  Go to Meta's Graph API Explorer:
+  developers.facebook.com/tools/explorer
+
+  ① At the top, find the "Meta App" dropdown.
+    Select the app you just set up
+    (e.g., "Claude Ads Connector").
+    Do NOT leave it on a random default app.
+
+  ② Make sure "User Token" is selected as
+    the token type (not Page Token).
+
+  ③ Click "Add a Permission".
+
+  ─────────────────────────────────────────────
+
+  ADDING PERMISSIONS
+
+  The dropdown shows a short default list
+  first — things like "events", "groups",
+  "pages". This is normal. Marketing
+  permissions are not shown by default.
+
+  ① In the dropdown, look for a search box.
+    Type "ads_read" and select it.
+    If there is no search box, scroll to
+    the bottom of the list to find it.
+
+  ② Repeat for:
+    ├── ads_management
+    └── business_management
+
+  If ads_read never appears at all:
+  → Your app is missing Marketing API.
+    Go to developers.facebook.com/apps,
+    open your app, click "Add Product",
+    find Marketing API, click Set Up.
+    Then reload Graph API Explorer.
+
+  → Tell me when all 3 permissions are added.
+```
+
+After user confirms permissions added:
+```
+  ④ Click "Generate Access Token".
+
+  Meta will ask you to log in and approve
+  the permissions. Click Continue and Allow.
+
+  A token will appear in the text field.
+  It's valid for 1 hour — that's fine,
+  we'll upgrade it automatically in a moment.
+
+  → Copy the full token and paste it here.
+    (Don't worry about length — it'll be
+    a long string of letters and numbers.)
+```
+
+After receiving short-lived token, call exchange_meta_token with the stored app_id, app_secret, and the pasted token.
+
+On success:
+```
+  META ADS — PATH B
+  Step 4 of 4 — TOKEN UPGRADED
+
+  ─────────────────────────────────────────────
+
+  Done. I exchanged your short-lived token
+  for a 60-day token automatically.
+
+  Token saved: META_ACCESS_TOKEN ...{masked}
+
+  ─────────────────────────────────────────────
+```
+
+Then call write_env_vars with META_ACCESS_TOKEN = the long_lived_token value from the exchange result.
+
+On exchange failure, show the error message from the result and prompt the user to double-check App ID, App Secret, and that the short-lived token was copied fully.
 
 After token + account ID collected, validate and show success same as Path A.
 Add to the success message:
@@ -437,6 +607,112 @@ Google setup has more steps. Be upfront about this.
 
 After receiving developer token, call write_env_vars with GOOGLE_DEVELOPER_TOKEN.
 
+### Google Step 1b — GCP access check (ask before Step 2)
+
+```
+  BEFORE WE MOVE ON — A QUICK QUESTION
+
+  ─────────────────────────────────────────────
+
+  The next step uses Google Cloud Console —
+  Google's developer dashboard. At some
+  companies, IT controls this and regular
+  employees can't create new projects there.
+
+  Does that sound like your company?
+
+  ①  No / not sure — let me try it
+  ②  Yes — IT locks down our Google Cloud
+```
+
+If ①: proceed to Step 2 as normal.
+
+If ②:
+```
+  NO PROBLEM — USE A PERSONAL GOOGLE ACCOUNT
+
+  ─────────────────────────────────────────────
+
+  You can create the OAuth project with a
+  personal Gmail account instead of your
+  work one.
+
+  Here's why this works: the OAuth project
+  is just a "permission slip" that lets this
+  tool connect to Google. It doesn't need to
+  live inside your company's systems. A
+  personal Google account can own it — and
+  then authorize access to the same Google
+  Ads account your work email uses.
+
+  ─────────────────────────────────────────────
+
+  ① Open an incognito window (or a browser
+    where you're signed in personally, not
+    with your work account)
+
+  ② Go to: console.cloud.google.com
+
+  ③ Make sure the account shown in the top
+    right is your personal Gmail, not your
+    work account. If it's wrong, click it
+    and switch.
+
+  ④ Follow the same steps below from there —
+    everything else is identical.
+
+  → Ready to continue?
+
+  ─────────────────────────────────────────────
+
+  NEED TO LOOP IN YOUR IT TEAM INSTEAD?
+
+  If you'd rather route this through your
+  company's Google Cloud, here's a pre-written
+  note you can send to your IT admin:
+
+  ─────────────────────────────────────────────
+
+  Subject: Google Cloud OAuth project request
+           for Google Ads API access
+
+  Hi [IT admin name],
+
+  I'm setting up an internal tool called
+  ads-mcp-connector that connects our Google
+  Ads account to Claude Code for reporting
+  and analysis. It's read-only — it cannot
+  create or modify any campaigns.
+
+  To do this, I need a Google Cloud OAuth 2.0
+  Client ID. Specifically, I need someone to:
+
+  1. Create (or let me create) a new project
+     in console.cloud.google.com
+  2. Enable the Google Ads API for that project
+     (under APIs & Services → Library)
+  3. Create an OAuth 2.0 Client ID under
+     APIs & Services → Credentials
+     (Application type: Desktop app)
+  4. Share the Client ID and Client Secret
+     with me
+
+  This credential is used once to generate a
+  refresh token that lives only on my machine.
+  The OAuth project itself doesn't need any
+  special permissions or billing setup.
+
+  The tool is open source:
+  github.com/bennymayo/ads-mcp-connector
+
+  Thank you.
+
+  ─────────────────────────────────────────────
+
+  → Let me know which route you're taking
+    and we'll continue from there.
+```
+
 ### Google Step 2 — OAuth2 credentials
 
 ```
@@ -446,7 +722,7 @@ After receiving developer token, call write_env_vars with GOOGLE_DEVELOPER_TOKEN
   ─────────────────────────────────────────────
 
   We need to register this tool as a trusted
-  app with Google. It's like creating an ID
+  app with Google. It's like getting an ID
   badge that proves to Google this tool is
   authorized to access your data.
 
@@ -454,6 +730,8 @@ After receiving developer token, call write_env_vars with GOOGLE_DEVELOPER_TOKEN
   Console (Google's developer dashboard).
 
   OPEN: console.cloud.google.com
+  (Use your personal account if your work
+  Google Cloud is locked — see above.)
 
   ─────────────────────────────────────────────
 
