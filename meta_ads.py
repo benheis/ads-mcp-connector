@@ -7,6 +7,7 @@ Credentials loaded from environment (META_ACCESS_TOKEN, META_AD_ACCOUNT_ID).
 
 from __future__ import annotations
 
+import calendar
 import json
 import os
 from datetime import datetime, timedelta
@@ -282,7 +283,7 @@ def get_ads(ad_set_id: str = None, date_range: str = "last_30d") -> dict:
     data = _get(
         f"{_account_id()}/ads",
         {
-            "fields": "id,name,status,adset_id,creative{thumbnail_url,title,body}",
+            "fields": "id,name,status,adset_id,created_time,creative{thumbnail_url,title,body}",
             "filtering": json.dumps(filtering) if filtering else "[]",
             "limit": 50,
         },
@@ -294,7 +295,7 @@ def get_ads(ad_set_id: str = None, date_range: str = "last_30d") -> dict:
     insights_data = _get(
         f"{_account_id()}/insights",
         {
-            "fields": "ad_id,ad_name,spend,impressions,clicks,ctr,cpc,reach",
+            "fields": "ad_id,ad_name,spend,impressions,clicks,ctr,cpc,reach,cost_per_action_type",
             "time_range": json.dumps(time_range),
             "level": "ad",
             "limit": 50,
@@ -314,6 +315,7 @@ def get_ads(ad_set_id: str = None, date_range: str = "last_30d") -> dict:
             "name": ad["name"],
             "status": ad["status"],
             "adset_id": ad.get("adset_id"),
+            "created_time": ad.get("created_time", ""),
             "headline": creative.get("title", ""),
             "body": creative.get("body", ""),
             "thumbnail_url": creative.get("thumbnail_url", ""),
@@ -322,6 +324,7 @@ def get_ads(ad_set_id: str = None, date_range: str = "last_30d") -> dict:
             "clicks": ins.get("clicks", "0"),
             "ctr": ins.get("ctr", "0"),
             "cpc": ins.get("cpc", "0"),
+            "cost_per_action_type": ins.get("cost_per_action_type", []),
         })
 
     results.sort(key=lambda x: float(x.get("spend", 0) or 0), reverse=True)
@@ -366,6 +369,62 @@ def get_insights(
         "breakdowns": breakdowns or [],
         "data": data.get("data", []),
     }
+
+
+def get_monthly_reach(months: int = 13) -> dict:
+    """Monthly reach, impressions, and spend for the last N months. Used for rolling reach analysis."""
+    err = _check_config()
+    if err:
+        return err
+
+    today = datetime.today()
+    results = []
+    for i in range(months - 1, -1, -1):
+        year = today.year
+        month = today.month - i
+        while month <= 0:
+            month += 12
+            year -= 1
+        since = datetime(year, month, 1)
+        _, last_day = calendar.monthrange(year, month)
+        until = datetime(year, month, last_day)
+        if until > today:
+            until = today
+
+        time_range = {
+            "since": since.strftime("%Y-%m-%d"),
+            "until": until.strftime("%Y-%m-%d"),
+        }
+        data = _get(
+            f"{_account_id()}/insights",
+            {
+                "fields": "reach,impressions,spend",
+                "time_range": json.dumps(time_range),
+                "level": "account",
+            },
+        )
+        row = {
+            "month": since.strftime("%Y-%m"),
+            "since": time_range["since"],
+            "until": time_range["until"],
+        }
+        if "data" in data and data["data"]:
+            d = data["data"][0]
+            row["reach"] = int(d.get("reach", 0) or 0)
+            row["impressions"] = int(d.get("impressions", 0) or 0)
+            row["spend"] = float(d.get("spend", 0) or 0)
+        elif "error" in data:
+            row["error"] = data["error"]
+            row["reach"] = 0
+            row["impressions"] = 0
+            row["spend"] = 0.0
+        else:
+            row["reach"] = 0
+            row["impressions"] = 0
+            row["spend"] = 0.0
+        results.append(row)
+
+    return {"months": results, "count": len(results)}
 
 
 def check_connection() -> dict:

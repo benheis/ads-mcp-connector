@@ -152,6 +152,21 @@ async def list_tools() -> list[Tool]:
                 "required": ["object_id"],
             },
         ),
+        Tool(
+            name="meta_get_monthly_reach",
+            description="Get monthly reach, impressions, and spend for the last N months. Returns one data point per calendar month — used for rolling reach / audience saturation analysis.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "months": {
+                        "type": "integer",
+                        "description": "Number of months to look back (default: 13)",
+                        "default": 13,
+                    }
+                },
+                "required": [],
+            },
+        ),
         # ── Google Ads ──
         Tool(
             name="google_get_account_overview",
@@ -276,6 +291,9 @@ def _dispatch(name: str, args: dict) -> dict:
             date_range=args.get("date_range", "last_30d"),
             breakdowns=args.get("breakdowns"),
         )
+
+    if name == "meta_get_monthly_reach":
+        return meta_ads.get_monthly_reach(months=args.get("months", 13))
 
     # ── Google ──
     if name == "google_get_account_overview":
