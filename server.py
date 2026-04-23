@@ -153,7 +153,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="meta_get_insights",
-            description="Get a breakdown report for a specific Meta campaign, ad set, or ad. When object_level is 'ad', rows include ad_id and ad_name. Supports breakdowns by age, gender, placement, device.",
+            description="Get a breakdown report for a specific Meta campaign, ad set, or ad. When object_level is 'ad', rows include ad_id and ad_name. Supports breakdowns by age, gender, placement, device. Set time_increment for per-month or per-day splits.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -177,6 +177,10 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Optional. Filter cost_per_action_type to this event (e.g. 'purchase', 'lead'). Adds a top-level 'cpa' field per row.",
                     },
+                    "time_increment": {
+                        "type": "string",
+                        "description": "Optional time bucketing: 'monthly', 'weekly', or '1' (daily). When set, each row has date_start/date_stop instead of a single total.",
+                    },
                 },
                 "required": ["object_id"],
             },
@@ -192,6 +196,26 @@ async def list_tools() -> list[Tool]:
                         "description": "Number of months to look back (default: 13)",
                         "default": 13,
                     }
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="meta_get_ad_monthly_spend",
+            description="Get per-ad spend broken down by calendar month. Returns one entry per ad with a monthly_spend array — the data needed for creative cohort / churn analysis.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "months": {
+                        "type": "integer",
+                        "description": "Number of months to look back (default: 6)",
+                        "default": 6,
+                    },
+                    "status_filter": {
+                        "type": "string",
+                        "description": "Filter by ad status: ALL, ACTIVE, PAUSED, ARCHIVED (default: ALL)",
+                        "default": "ALL",
+                    },
                 },
                 "required": [],
             },
@@ -610,10 +634,17 @@ def _dispatch(name: str, args: dict) -> dict:
             date_range=args.get("date_range", "last_30d"),
             breakdowns=args.get("breakdowns"),
             conversion_event=args.get("conversion_event"),
+            time_increment=args.get("time_increment"),
         )
 
     if name == "meta_get_monthly_reach":
         return meta_ads.get_monthly_reach(months=args.get("months", 13))
+
+    if name == "meta_get_ad_monthly_spend":
+        return meta_ads.get_ad_monthly_spend(
+            months=args.get("months", 6),
+            status_filter=args.get("status_filter", "ALL"),
+        )
 
     # ── Meta Writes ──
     if name == "meta_update_campaign_status":

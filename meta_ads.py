@@ -400,12 +400,15 @@ def get_insights(
     date_range: str = "last_30d",
     breakdowns: list = None,
     conversion_event: str = None,
+    time_increment: str = None,
 ) -> dict:
     """Breakdown report for a specific campaign, ad set, or ad.
 
     conversion_event: if provided, filters cost_per_action_type to matching entries
         and adds a top-level 'cpa' field per row for that event's cost.
     date_range: preset string OR custom JSON e.g. '{"since":"2025-01-01","until":"2025-03-31"}'.
+    time_increment: optional time bucketing — "monthly", "weekly", or "1" (daily).
+        When set, each row includes a 'date_start' / 'date_stop' instead of totals.
     """
     err = _check_config()
     if err:
@@ -428,6 +431,8 @@ def get_insights(
         clean = [b for b in breakdowns if b in valid_breakdowns]
         if clean:
             params["breakdowns"] = ",".join(clean)
+    if time_increment:
+        params["time_increment"] = time_increment
 
     data = _get(f"{object_id}/insights", params)
     if "error" in data:
@@ -445,6 +450,7 @@ def get_insights(
         "object_level": object_level,
         "date_range": date_range,
         "breakdowns": breakdowns or [],
+        "time_increment": time_increment,
         "data": rows,
     }
 
@@ -503,6 +509,94 @@ def get_monthly_reach(months: int = 13) -> dict:
         results.append(row)
 
     return {"months": results, "count": len(results)}
+
+
+def get_ad_monthly_spend(months: int = 6, status_filter: str = "ALL") -> dict:
+    """Per-ad spend broken down by calendar month for the last N months.
+
+    Returns one entry per ad with a monthly_spend array — the primitive needed for
+    creative cohort analysis. Internally makes one insights call with time_increment=monthly
+    at ad level, then enriches with ad metadata (name, created_time, status).
+    """
+    err = _check_config()
+    if err:
+        return err
+
+    today = datetime.today()
+    since_dt = datetime(today.year, today.month, 1)
+    for _ in range(months - 1):
+        m = since_dt.month - 1
+        y = since_dt.year
+        if m == 0:
+            m = 12
+            y -= 1
+        since_dt = datetime(y, m, 1)
+    since = since_dt.strftime("%Y-%m-%d")
+    until = today.strftime("%Y-%m-%d")
+
+    time_range = {"since": since, "until": until}
+    params = {
+        "fields": "ad_id,ad_name,spend",
+        "time_range": json.dumps(time_range),
+        "level": "ad",
+        "time_increment": "monthly",
+        "limit": 500,
+    }
+    data = _get(f"{_account_id()}/insights", params)
+    if "error" in data:
+        return data
+
+    # Collect all pages
+    rows = list(data.get("data", []))
+    paging = data.get("paging", {})
+    while paging.get("next"):
+        page = _get_paged(paging["next"], {})
+        if "error" in page:
+            break
+        rows.extend(page.get("data", []))
+        paging = page.get("paging", {})
+
+    # Group rows by ad_id → monthly_spend list
+    ads: dict = {}
+    for row in rows:
+        ad_id = row.get("ad_id", "")
+        if not ad_id:
+            continue
+        if ad_id not in ads:
+            ads[ad_id] = {
+                "ad_id": ad_id,
+                "ad_name": row.get("ad_name", ""),
+                "monthly_spend": [],
+            }
+        month_str = row.get("date_start", "")[:7]  # YYYY-MM
+        ads[ad_id]["monthly_spend"].append({
+            "month": month_str,
+            "spend": float(row.get("spend", 0) or 0),
+        })
+
+    # Enrich with created_time and status from ads metadata endpoint
+    if ads:
+        meta_params = {
+            "fields": "id,name,created_time,effective_status",
+            "filtering": json.dumps([{"field": "effective_status", "operator": "IN",
+                                      "value": ["ACTIVE", "PAUSED", "ARCHIVED",
+                                                "DELETED", "DISAPPROVED", "PENDING_REVIEW"]}]),
+            "limit": 500,
+        }
+        meta_data = _get(f"{_account_id()}/ads", meta_params)
+        meta_lookup = {}
+        for ad in meta_data.get("data", []):
+            meta_lookup[ad["id"]] = ad
+        for ad_id, ad in ads.items():
+            meta = meta_lookup.get(ad_id, {})
+            ad["created_time"] = meta.get("created_time", "")
+            ad["status"] = meta.get("effective_status", "")
+
+    result = list(ads.values())
+    if status_filter and status_filter != "ALL":
+        result = [a for a in result if a.get("status", "").upper() == status_filter.upper()]
+
+    return {"ads": result, "count": len(result), "date_range": {"since": since, "until": until}}
 
 
 # ─── Write helpers ────────────────────────────────────────────────────────────
