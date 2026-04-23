@@ -104,6 +104,22 @@ def _get(endpoint: str, params: dict) -> dict:
         return {"error": "REQUEST_FAILED", "message": str(e)}
 
 
+def _get_paged(endpoint: str, params: dict, max_rows: int = 500) -> list:
+    """Fetch all cursor-paginated rows from an endpoint, up to max_rows."""
+    rows = []
+    params = dict(params)
+    while True:
+        data = _get(endpoint, params)
+        if "error" in data:
+            break
+        rows.extend(data.get("data", []))
+        after = data.get("paging", {}).get("cursors", {}).get("after")
+        if not after or "next" not in data.get("paging", {}) or len(rows) >= max_rows:
+            break
+        params["after"] = after
+    return rows[:max_rows]
+
+
 # ─── Tool implementations ──────────────────────────────────────────────────────
 
 
@@ -270,7 +286,7 @@ def get_ad_sets(campaign_id: str = None, date_range: str = "last_30d") -> dict:
 
 
 def get_ads(ad_set_id: str = None, date_range: str = "last_30d") -> dict:
-    """Individual ads with performance metrics."""
+    """Individual ads with performance metrics and created_time."""
     err = _check_config()
     if err:
         return err
@@ -280,45 +296,40 @@ def get_ads(ad_set_id: str = None, date_range: str = "last_30d") -> dict:
     if ad_set_id:
         filtering = [{"field": "adset_id", "operator": "EQUAL", "value": ad_set_id}]
 
-    data = _get(
-        f"{_account_id()}/ads",
-        {
-            "fields": "id,name,status,adset_id,created_time,creative{thumbnail_url,title,body}",
-            "filtering": json.dumps(filtering) if filtering else "[]",
-            "limit": 50,
-        },
-    )
-    if "error" in data:
-        return data
+    # Step 1: insights first — this is the reliable source for spend and CPA.
+    # Iterating from the ads endpoint and joining insights fails because the two
+    # paginated lists rarely align (different ordering, different active sets).
+    ins_params = {
+        "fields": "ad_id,ad_name,spend,impressions,clicks,ctr,cpc,reach,cost_per_action_type",
+        "time_range": json.dumps(time_range),
+        "level": "ad",
+        "limit": 200,
+    }
+    if filtering:
+        ins_params["filtering"] = json.dumps(filtering)
 
-    ads = data.get("data", [])
-    insights_data = _get(
-        f"{_account_id()}/insights",
-        {
-            "fields": "ad_id,ad_name,spend,impressions,clicks,ctr,cpc,reach,cost_per_action_type",
-            "time_range": json.dumps(time_range),
-            "level": "ad",
-            "limit": 50,
-        },
-    )
-    insights_by_id = {}
-    if "data" in insights_data:
-        for row in insights_data["data"]:
-            insights_by_id[row.get("ad_id")] = row
+    insights_rows = _get_paged(f"{_account_id()}/insights", ins_params)
 
+    # Step 2: fetch ad metadata (created_time, status) for the same scope.
+    meta_params = {
+        "fields": "id,name,status,adset_id,created_time",
+        "filtering": json.dumps(filtering) if filtering else "[]",
+        "limit": 200,
+    }
+    meta_rows = _get_paged(f"{_account_id()}/ads", meta_params)
+    ad_meta = {ad["id"]: ad for ad in meta_rows}
+
+    # Step 3: merge — insights rows are the authority on which ads ran.
     results = []
-    for ad in ads:
-        ins = insights_by_id.get(ad["id"], {})
-        creative = ad.get("creative", {})
+    for ins in insights_rows:
+        ad_id = ins.get("ad_id", "")
+        meta = ad_meta.get(ad_id, {})
         results.append({
-            "id": ad["id"],
-            "name": ad["name"],
-            "status": ad["status"],
-            "adset_id": ad.get("adset_id"),
-            "created_time": ad.get("created_time", ""),
-            "headline": creative.get("title", ""),
-            "body": creative.get("body", ""),
-            "thumbnail_url": creative.get("thumbnail_url", ""),
+            "id": ad_id,
+            "name": ins.get("ad_name") or meta.get("name", ""),
+            "status": meta.get("status", ""),
+            "adset_id": meta.get("adset_id", ""),
+            "created_time": meta.get("created_time", ""),
             "spend": ins.get("spend", "0"),
             "impressions": ins.get("impressions", "0"),
             "clicks": ins.get("clicks", "0"),
@@ -347,8 +358,10 @@ def get_insights(
         return {"error": "INVALID_LEVEL", "valid_levels": list(valid_levels)}
 
     time_range = _date_range_params(date_range)
+    # Include ad_id and ad_name when querying at ad level so rows aren't anonymous
+    id_fields = "ad_id,ad_name," if object_level == "ad" else ""
     params = {
-        "fields": "spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type",
+        "fields": f"{id_fields}spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type",
         "time_range": json.dumps(time_range),
         "level": object_level,
     }
