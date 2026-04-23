@@ -56,25 +56,44 @@ def _account_id() -> str:
 
 
 def _date_range_params(date_range: str) -> dict:
-    """Convert a friendly date range string to Meta API time_range params."""
+    """Convert a date range to Meta API time_range params.
+
+    Accepts:
+    - Preset strings: today, yesterday, last_7d, last_14d, last_30d, last_90d,
+      last_6_months, last_12_months, this_month, last_month
+    - Custom JSON: '{"since": "2025-01-01", "until": "2025-03-31"}'
+
+    Note: Meta reports dates in the ad account's timezone, which may differ from
+    the server's local time. A 'until: today' request can show future-looking
+    date_stop values when the account timezone is ahead of the server timezone.
+    """
+    # Support custom {"since": "...", "until": "..."} passed as a JSON string
+    stripped = date_range.strip()
+    if stripped.startswith("{"):
+        try:
+            parsed = json.loads(stripped)
+            if "since" in parsed and "until" in parsed:
+                return {"since": parsed["since"], "until": parsed["until"]}
+        except (json.JSONDecodeError, KeyError):
+            pass
+
     today = datetime.today()
     ranges = {
-        "today": (today, today),
-        "yesterday": (today - timedelta(1), today - timedelta(1)),
-        "last_7d": (today - timedelta(7), today),
-        "last_14d": (today - timedelta(14), today),
-        "last_30d": (today - timedelta(30), today),
-        "last_90d": (today - timedelta(90), today),
-        "this_month": (today.replace(day=1), today),
-        "last_month": (
+        "today":          (today, today),
+        "yesterday":      (today - timedelta(1), today - timedelta(1)),
+        "last_7d":        (today - timedelta(7), today),
+        "last_14d":       (today - timedelta(14), today),
+        "last_30d":       (today - timedelta(30), today),
+        "last_90d":       (today - timedelta(90), today),
+        "last_6_months":  (today - timedelta(183), today),
+        "last_12_months": (today - timedelta(365), today),
+        "this_month":     (today.replace(day=1), today),
+        "last_month":     (
             (today.replace(day=1) - timedelta(1)).replace(day=1),
             today.replace(day=1) - timedelta(1),
         ),
     }
-    if date_range not in ranges:
-        # Default to last 30 days for unrecognized values
-        date_range = "last_30d"
-    since, until = ranges[date_range]
+    since, until = ranges.get(date_range, ranges["last_30d"])
     return {
         "since": since.strftime("%Y-%m-%d"),
         "until": until.strftime("%Y-%m-%d"),
@@ -118,6 +137,21 @@ def _get_paged(endpoint: str, params: dict, max_rows: int = 500) -> list:
             break
         params["after"] = after
     return rows[:max_rows]
+
+
+def _filter_cpa(cost_per_action_list: list, conversion_event: str = None) -> tuple:
+    """Return (filtered_list, cpa_value) for a specific conversion event.
+
+    conversion_event is matched loosely against action_type substrings so that
+    e.g. 'purchase' matches 'offsite_conversion.fb_pixel_purchase' and 'omni_purchase'.
+    Returns the full list and None if no conversion_event is given.
+    """
+    if not conversion_event or not cost_per_action_list:
+        return cost_per_action_list or [], None
+    key = conversion_event.lower().replace(" ", "_")
+    filtered = [row for row in cost_per_action_list if key in row.get("action_type", "").lower()]
+    cpa_value = filtered[0]["value"] if filtered else "0"
+    return filtered, cpa_value
 
 
 # ─── Tool implementations ──────────────────────────────────────────────────────
@@ -285,8 +319,19 @@ def get_ad_sets(campaign_id: str = None, date_range: str = "last_30d") -> dict:
     return {"ad_sets": results, "date_range": date_range, "count": len(results)}
 
 
-def get_ads(ad_set_id: str = None, date_range: str = "last_30d") -> dict:
-    """Individual ads with performance metrics and created_time."""
+def get_ads(
+    ad_set_id: str = None,
+    date_range: str = "last_30d",
+    status_filter: str = "ALL",
+    conversion_event: str = None,
+) -> dict:
+    """Individual ads with performance metrics and created_time.
+
+    status_filter: ACTIVE, PAUSED, or ALL (default ALL — diagnostic needs paused ads too).
+    conversion_event: if provided, filters cost_per_action_type to matching entries and
+        adds a top-level 'cpa' field with just that event's cost.
+    date_range: preset string OR custom JSON e.g. '{"since":"2025-01-01","until":"2025-03-31"}'.
+    """
     err = _check_config()
     if err:
         return err
@@ -294,11 +339,13 @@ def get_ads(ad_set_id: str = None, date_range: str = "last_30d") -> dict:
     time_range = _date_range_params(date_range)
     filtering = []
     if ad_set_id:
-        filtering = [{"field": "adset_id", "operator": "EQUAL", "value": ad_set_id}]
+        filtering.append({"field": "adset_id", "operator": "EQUAL", "value": ad_set_id})
+    if status_filter and status_filter != "ALL":
+        filtering.append({"field": "effective_status", "operator": "IN", "value": [status_filter]})
 
-    # Step 1: insights first — this is the reliable source for spend and CPA.
-    # Iterating from the ads endpoint and joining insights fails because the two
-    # paginated lists rarely align (different ordering, different active sets).
+    # Step 1: insights first — the reliable source for spend and CPA.
+    # Starting from the ads metadata endpoint and joining insights fails because
+    # the two paginated lists rarely align (different ordering, different active sets).
     ins_params = {
         "fields": "ad_id,ad_name,spend,impressions,clicks,ctr,cpc,reach,cost_per_action_type",
         "time_range": json.dumps(time_range),
@@ -324,7 +371,9 @@ def get_ads(ad_set_id: str = None, date_range: str = "last_30d") -> dict:
     for ins in insights_rows:
         ad_id = ins.get("ad_id", "")
         meta = ad_meta.get(ad_id, {})
-        results.append({
+        raw_cpa_list = ins.get("cost_per_action_type", [])
+        filtered_cpa, cpa_value = _filter_cpa(raw_cpa_list, conversion_event)
+        row = {
             "id": ad_id,
             "name": ins.get("ad_name") or meta.get("name", ""),
             "status": meta.get("status", ""),
@@ -335,8 +384,11 @@ def get_ads(ad_set_id: str = None, date_range: str = "last_30d") -> dict:
             "clicks": ins.get("clicks", "0"),
             "ctr": ins.get("ctr", "0"),
             "cpc": ins.get("cpc", "0"),
-            "cost_per_action_type": ins.get("cost_per_action_type", []),
-        })
+            "cost_per_action_type": filtered_cpa,
+        }
+        if conversion_event:
+            row["cpa"] = cpa_value
+        results.append(row)
 
     results.sort(key=lambda x: float(x.get("spend", 0) or 0), reverse=True)
     return {"ads": results, "date_range": date_range, "count": len(results)}
@@ -347,8 +399,14 @@ def get_insights(
     object_level: str = "campaign",
     date_range: str = "last_30d",
     breakdowns: list = None,
+    conversion_event: str = None,
 ) -> dict:
-    """Breakdown report for a specific campaign, ad set, or ad."""
+    """Breakdown report for a specific campaign, ad set, or ad.
+
+    conversion_event: if provided, filters cost_per_action_type to matching entries
+        and adds a top-level 'cpa' field per row for that event's cost.
+    date_range: preset string OR custom JSON e.g. '{"since":"2025-01-01","until":"2025-03-31"}'.
+    """
     err = _check_config()
     if err:
         return err
@@ -375,12 +433,19 @@ def get_insights(
     if "error" in data:
         return data
 
+    rows = data.get("data", [])
+    if conversion_event:
+        for row in rows:
+            filtered, cpa_value = _filter_cpa(row.get("cost_per_action_type", []), conversion_event)
+            row["cost_per_action_type"] = filtered
+            row["cpa"] = cpa_value
+
     return {
         "object_id": object_id,
         "object_level": object_level,
         "date_range": date_range,
         "breakdowns": breakdowns or [],
-        "data": data.get("data", []),
+        "data": rows,
     }
 
 

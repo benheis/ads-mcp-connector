@@ -77,13 +77,13 @@ async def list_tools() -> list[Tool]:
         # ── Meta Ads ──
         Tool(
             name="meta_get_account_overview",
-            description="Get top-level Meta Ads account stats: total spend, reach, impressions, clicks, CTR for a date range.",
+            description="Get top-level Meta Ads account stats: total spend, reach, impressions, clicks, CTR for a date range. Note: reported dates are in the ad account's timezone, which may differ from the server timezone.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "date_range": {
                         "type": "string",
-                        "description": "Date range. Options: today, yesterday, last_7d, last_14d, last_30d, last_90d, this_month, last_month",
+                        "description": "Preset: today, yesterday, last_7d, last_14d, last_30d, last_90d, last_6_months, last_12_months, this_month, last_month. Or custom JSON: '{\"since\":\"2025-01-01\",\"until\":\"2025-03-31\"}'",
                         "default": "last_30d",
                     }
                 },
@@ -120,19 +120,32 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="meta_get_ads",
-            description="List individual Meta ads with creative info and performance metrics.",
+            description="List individual Meta ads with spend, CPA, created_time, and performance metrics. Pulls from insights first (reliable spend data) then enriches with ad metadata. Auto-paginates up to 500 ads.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "ad_set_id": {"type": "string", "description": "Filter to a specific ad set (optional)"},
-                    "date_range": {"type": "string", "default": "last_30d"},
+                    "date_range": {
+                        "type": "string",
+                        "description": "Preset: today, yesterday, last_7d, last_14d, last_30d, last_90d, last_6_months, last_12_months, this_month, last_month. Or custom JSON: '{\"since\":\"2025-01-01\",\"until\":\"2025-03-31\"}'",
+                        "default": "last_30d",
+                    },
+                    "status_filter": {
+                        "type": "string",
+                        "description": "Filter by ad status: ACTIVE, PAUSED, or ALL. Default ALL (diagnostic needs paused ads with historical spend).",
+                        "default": "ALL",
+                    },
+                    "conversion_event": {
+                        "type": "string",
+                        "description": "Optional. Filter cost_per_action_type to this event (e.g. 'purchase', 'lead'). Matched loosely against action_type substrings. Adds a top-level 'cpa' field per ad with just that event's cost.",
+                    },
                 },
                 "required": [],
             },
         ),
         Tool(
             name="meta_get_insights",
-            description="Get a breakdown report for a specific Meta campaign, ad set, or ad. Supports breakdowns by age, gender, placement, device.",
+            description="Get a breakdown report for a specific Meta campaign, ad set, or ad. When object_level is 'ad', rows include ad_id and ad_name. Supports breakdowns by age, gender, placement, device.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -142,11 +155,19 @@ async def list_tools() -> list[Tool]:
                         "description": "Level: campaign, adset, or ad",
                         "default": "campaign",
                     },
-                    "date_range": {"type": "string", "default": "last_30d"},
+                    "date_range": {
+                        "type": "string",
+                        "description": "Preset: today, yesterday, last_7d, last_14d, last_30d, last_90d, last_6_months, last_12_months, this_month, last_month. Or custom JSON: '{\"since\":\"2025-01-01\",\"until\":\"2025-03-31\"}'",
+                        "default": "last_30d",
+                    },
                     "breakdowns": {
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "Optional breakdowns: age, gender, placement, device_platform",
+                    },
+                    "conversion_event": {
+                        "type": "string",
+                        "description": "Optional. Filter cost_per_action_type to this event (e.g. 'purchase', 'lead'). Adds a top-level 'cpa' field per row.",
                     },
                 },
                 "required": ["object_id"],
@@ -282,6 +303,8 @@ def _dispatch(name: str, args: dict) -> dict:
         return meta_ads.get_ads(
             ad_set_id=args.get("ad_set_id"),
             date_range=args.get("date_range", "last_30d"),
+            status_filter=args.get("status_filter", "ALL"),
+            conversion_event=args.get("conversion_event"),
         )
 
     if name == "meta_get_insights":
@@ -290,6 +313,7 @@ def _dispatch(name: str, args: dict) -> dict:
             object_level=args.get("object_level", "campaign"),
             date_range=args.get("date_range", "last_30d"),
             breakdowns=args.get("breakdowns"),
+            conversion_event=args.get("conversion_event"),
         )
 
     if name == "meta_get_monthly_reach":
