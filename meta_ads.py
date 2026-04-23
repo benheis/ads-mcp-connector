@@ -542,19 +542,7 @@ def get_ad_monthly_spend(months: int = 6, status_filter: str = "ALL") -> dict:
         "time_increment": "monthly",
         "limit": 500,
     }
-    data = _get(f"{_account_id()}/insights", params)
-    if "error" in data:
-        return data
-
-    # Collect all pages
-    rows = list(data.get("data", []))
-    paging = data.get("paging", {})
-    while paging.get("next"):
-        page = _get_paged(paging["next"], {})
-        if "error" in page:
-            break
-        rows.extend(page.get("data", []))
-        paging = page.get("paging", {})
+    rows = _get_paged(f"{_account_id()}/insights", params, max_rows=5000)
 
     # Group rows by ad_id → monthly_spend list
     ads: dict = {}
