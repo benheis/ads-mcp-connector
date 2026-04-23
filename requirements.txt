@@ -10,3 +10,6 @@ requests>=2.31.0
 # Google Ads
 google-ads>=24.0.0
 google-auth-oauthlib>=1.2.0
+
+# Corporate TLS proxy support (Zscaler, Netskope, Cloudflare WARP, etc.)
+truststore>=0.9.1

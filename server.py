@@ -14,6 +14,14 @@ import os
 import sys
 from pathlib import Path
 
+# Inject system trust store so requests work behind corporate TLS proxies
+# (Zscaler, Netskope, Cloudflare WARP, etc.) without manual cert configuration.
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
+
 # Load .env from the directory this script lives in
 try:
     from dotenv import load_dotenv
