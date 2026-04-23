@@ -505,6 +505,386 @@ def get_monthly_reach(months: int = 13) -> dict:
     return {"months": results, "count": len(results)}
 
 
+# ─── Write helpers ────────────────────────────────────────────────────────────
+
+
+def _post(endpoint: str, data: dict) -> dict:
+    """Make a Graph API POST request. Returns parsed JSON or error dict."""
+    data = dict(data)
+    data["access_token"] = _token()
+    try:
+        resp = requests.post(f"{GRAPH_API_BASE}/{endpoint}", data=data, timeout=30)
+        result = resp.json()
+        if "error" in result:
+            code = result["error"].get("code")
+            msg = result["error"].get("message", "Unknown Meta API error")
+            if code == 190:
+                return {"error": "META_TOKEN_EXPIRED", "message": msg,
+                        "hint": "Your Meta token has expired. Run /ads-connect to renew it."}
+            return {"error": "META_API_ERROR", "code": code, "message": msg}
+        return result
+    except requests.exceptions.Timeout:
+        return {"error": "TIMEOUT", "hint": "Meta API request timed out. Try again."}
+    except Exception as e:
+        return {"error": "REQUEST_FAILED", "message": str(e)}
+
+
+def _upload(endpoint: str, files: dict, data: dict) -> dict:
+    """Make a multipart POST request (for image/video uploads)."""
+    data = dict(data)
+    data["access_token"] = _token()
+    try:
+        resp = requests.post(f"{GRAPH_API_BASE}/{endpoint}", files=files, data=data, timeout=120)
+        result = resp.json()
+        if "error" in result:
+            return {"error": "META_API_ERROR", "message": result["error"].get("message", "Upload failed")}
+        return result
+    except requests.exceptions.Timeout:
+        return {"error": "TIMEOUT", "hint": "Upload timed out — try a smaller file or check your connection."}
+    except Exception as e:
+        return {"error": "REQUEST_FAILED", "message": str(e)}
+
+
+# ─── Write implementations ─────────────────────────────────────────────────────
+
+
+def update_campaign_status(campaign_id: str, status: str) -> dict:
+    """Pause or enable a campaign. status: ACTIVE or PAUSED."""
+    err = _check_config()
+    if err:
+        return err
+    result = _post(campaign_id, {"status": status})
+    if result.get("success"):
+        return {"updated": campaign_id, "type": "campaign", "status": status}
+    return result
+
+
+def update_ad_set_status(ad_set_id: str, status: str) -> dict:
+    """Pause or enable an ad set. status: ACTIVE or PAUSED."""
+    err = _check_config()
+    if err:
+        return err
+    result = _post(ad_set_id, {"status": status})
+    if result.get("success"):
+        return {"updated": ad_set_id, "type": "ad_set", "status": status}
+    return result
+
+
+def update_ad_status(ad_id: str, status: str) -> dict:
+    """Pause or enable an individual ad. status: ACTIVE or PAUSED."""
+    err = _check_config()
+    if err:
+        return err
+    result = _post(ad_id, {"status": status})
+    if result.get("success"):
+        return {"updated": ad_id, "type": "ad", "status": status}
+    return result
+
+
+def update_budget(
+    object_id: str,
+    object_type: str,
+    budget_type: str,
+    amount_dollars: float,
+    daily_min_dollars: float = None,
+    daily_max_dollars: float = None,
+) -> dict:
+    """Update budget on a campaign (CBO) or ad set.
+
+    object_type: 'campaign' or 'ad_set'
+    budget_type: 'daily' or 'lifetime'
+    amount_dollars: budget in dollars (converted to cents internally)
+    daily_min_dollars / daily_max_dollars: CBO ad-set spend constraints (ad_set only)
+    """
+    err = _check_config()
+    if err:
+        return err
+
+    payload = {}
+    field = "daily_budget" if budget_type == "daily" else "lifetime_budget"
+    payload[field] = int(amount_dollars * 100)
+
+    if object_type == "ad_set":
+        if daily_min_dollars is not None:
+            payload["daily_min_spend_target"] = int(daily_min_dollars * 100)
+        if daily_max_dollars is not None:
+            payload["daily_max_spend_cap"] = int(daily_max_dollars * 100)
+
+    result = _post(object_id, payload)
+    if result.get("success"):
+        return {"updated": object_id, "type": object_type, "budget_type": budget_type,
+                "amount_dollars": amount_dollars}
+    return result
+
+
+def create_campaign(
+    name: str,
+    objective: str,
+    budget_type: str,
+    amount_dollars: float,
+    status: str = "PAUSED",
+    special_ad_categories: list = None,
+) -> dict:
+    """Create a new Meta Ads campaign.
+
+    objective: OUTCOME_TRAFFIC, OUTCOME_LEADS, OUTCOME_SALES, OUTCOME_AWARENESS,
+               OUTCOME_ENGAGEMENT, OUTCOME_APP_PROMOTION
+    budget_type: 'daily' or 'lifetime'
+    status: ACTIVE or PAUSED (default PAUSED — always review before activating)
+    """
+    err = _check_config()
+    if err:
+        return err
+
+    budget_field = "daily_budget" if budget_type == "daily" else "lifetime_budget"
+    payload = {
+        "name": name,
+        "objective": objective,
+        "status": status,
+        "special_ad_categories": json.dumps(special_ad_categories or []),
+        budget_field: int(amount_dollars * 100),
+    }
+    result = _post(f"{_account_id()}/campaigns", payload)
+    if "id" in result:
+        return {"campaign_id": result["id"], "name": name, "objective": objective,
+                "status": status, budget_field: amount_dollars}
+    return result
+
+
+def create_ad_set(
+    campaign_id: str,
+    name: str,
+    optimization_goal: str,
+    billing_event: str = "IMPRESSIONS",
+    bid_strategy: str = "LOWEST_COST_WITHOUT_CAP",
+    daily_budget_dollars: float = None,
+    lifetime_budget_dollars: float = None,
+    targeting: dict = None,
+    start_time: str = None,
+    end_time: str = None,
+    status: str = "PAUSED",
+) -> dict:
+    """Create a new ad set inside a campaign.
+
+    optimization_goal: OFFSITE_CONVERSIONS, LINK_CLICKS, REACH, IMPRESSIONS,
+                       LANDING_PAGE_VIEWS, LEAD_GENERATION
+    bid_strategy: LOWEST_COST_WITHOUT_CAP, LOWEST_COST_WITH_BID_CAP, COST_CAP
+    targeting: dict matching Meta targeting spec (geo, age, interests, etc.)
+    start_time / end_time: ISO 8601 strings (e.g. '2025-05-01T00:00:00-0500')
+    """
+    err = _check_config()
+    if err:
+        return err
+
+    payload = {
+        "campaign_id": campaign_id,
+        "name": name,
+        "optimization_goal": optimization_goal,
+        "billing_event": billing_event,
+        "bid_strategy": bid_strategy,
+        "status": status,
+        "targeting": json.dumps(targeting or {"geo_locations": {"countries": ["US"]}}),
+    }
+    if daily_budget_dollars is not None:
+        payload["daily_budget"] = int(daily_budget_dollars * 100)
+    elif lifetime_budget_dollars is not None:
+        payload["lifetime_budget"] = int(lifetime_budget_dollars * 100)
+    if start_time:
+        payload["start_time"] = start_time
+    if end_time:
+        payload["end_time"] = end_time
+
+    result = _post(f"{_account_id()}/adsets", payload)
+    if "id" in result:
+        return {"ad_set_id": result["id"], "name": name, "campaign_id": campaign_id,
+                "optimization_goal": optimization_goal, "status": status}
+    return result
+
+
+def create_ad(
+    ad_set_id: str,
+    name: str,
+    creative_id: str,
+    status: str = "PAUSED",
+) -> dict:
+    """Create an ad linking to an existing ad creative.
+
+    creative_id: returned by create_ad_creative or visible in Ads Manager.
+    status: PAUSED (default) — review creative before activating.
+    """
+    err = _check_config()
+    if err:
+        return err
+
+    payload = {
+        "adset_id": ad_set_id,
+        "name": name,
+        "creative": json.dumps({"creative_id": creative_id}),
+        "status": status,
+    }
+    result = _post(f"{_account_id()}/ads", payload)
+    if "id" in result:
+        return {"ad_id": result["id"], "name": name, "ad_set_id": ad_set_id,
+                "creative_id": creative_id, "status": status}
+    return result
+
+
+def upload_image(file_path: str) -> dict:
+    """Upload a static image to the ad account's image library.
+
+    file_path: absolute path to the image file on the local machine.
+    Returns image_hash — use this in create_ad_creative.
+    Supported formats: JPG, PNG, GIF. Recommended: 1200x628px for link ads.
+    """
+    err = _check_config()
+    if err:
+        return err
+
+    import os as _os
+    if not _os.path.exists(file_path):
+        return {"error": "FILE_NOT_FOUND", "file_path": file_path}
+
+    filename = _os.path.basename(file_path)
+    try:
+        with open(file_path, "rb") as f:
+            result = _upload(
+                f"{_account_id()}/adimages",
+                files={"filename": (filename, f)},
+                data={},
+            )
+    except OSError as e:
+        return {"error": "FILE_READ_ERROR", "message": str(e)}
+
+    if "error" in result:
+        return result
+
+    images = result.get("images", {})
+    if filename in images:
+        img = images[filename]
+        return {"image_hash": img.get("hash"), "url": img.get("url"),
+                "width": img.get("width"), "height": img.get("height"), "filename": filename}
+    return {"error": "UNEXPECTED_RESPONSE", "raw": result}
+
+
+def upload_video(file_path: str, title: str = None) -> dict:
+    """Upload a video to the ad account's video library.
+
+    file_path: absolute path to the video file on the local machine.
+    Returns video_id — use this in create_ad_creative.
+    Supported formats: MP4, MOV. Max file size: 4GB.
+    Note: large videos may take time; the API returns immediately with a video_id
+    while encoding happens asynchronously.
+    """
+    err = _check_config()
+    if err:
+        return err
+
+    import os as _os
+    if not _os.path.exists(file_path):
+        return {"error": "FILE_NOT_FOUND", "file_path": file_path}
+
+    filename = _os.path.basename(file_path)
+    extra = {}
+    if title:
+        extra["title"] = title
+
+    try:
+        with open(file_path, "rb") as f:
+            result = _upload(
+                f"{_account_id()}/advideos",
+                files={"source": (filename, f)},
+                data=extra,
+            )
+    except OSError as e:
+        return {"error": "FILE_READ_ERROR", "message": str(e)}
+
+    if "error" in result:
+        return result
+    if "id" in result:
+        return {"video_id": result["id"], "filename": filename,
+                "note": "Video is processing — encoding may take a few minutes before it's usable in creatives."}
+    return {"error": "UNEXPECTED_RESPONSE", "raw": result}
+
+
+def create_ad_creative(
+    name: str,
+    page_id: str,
+    link_url: str,
+    message: str,
+    headline: str,
+    description: str = "",
+    call_to_action_type: str = "LEARN_MORE",
+    image_hash: str = None,
+    video_id: str = None,
+) -> dict:
+    """Create an ad creative using an uploaded image or video.
+
+    Requires either image_hash (from upload_image) or video_id (from upload_video).
+    page_id: your Facebook Page ID — required for all Meta ad creatives.
+    call_to_action_type: LEARN_MORE, SHOP_NOW, SIGN_UP, GET_QUOTE, DOWNLOAD,
+                         BOOK_TRAVEL, CONTACT_US, WATCH_MORE, APPLY_NOW, GET_OFFER
+    Returns creative_id — pass this to create_ad.
+    """
+    err = _check_config()
+    if err:
+        return err
+
+    if not image_hash and not video_id:
+        return {"error": "MISSING_ASSET", "hint": "Provide image_hash or video_id."}
+
+    cta = {"type": call_to_action_type}
+
+    if image_hash:
+        story_spec = {
+            "page_id": page_id,
+            "link_data": {
+                "image_hash": image_hash,
+                "link": link_url,
+                "message": message,
+                "name": headline,
+                "description": description,
+                "call_to_action": cta,
+            },
+        }
+    else:
+        story_spec = {
+            "page_id": page_id,
+            "video_data": {
+                "video_id": video_id,
+                "title": headline,
+                "message": message,
+                "link_description": description,
+                "call_to_action": {**cta, "value": {"link": link_url}},
+            },
+        }
+
+    payload = {
+        "name": name,
+        "object_story_spec": json.dumps(story_spec),
+    }
+    result = _post(f"{_account_id()}/adcreatives", payload)
+    if "id" in result:
+        return {"creative_id": result["id"], "name": name,
+                "asset_type": "image" if image_hash else "video"}
+    return result
+
+
+def get_ad_images() -> dict:
+    """List all images in the ad account's image library with their hashes."""
+    err = _check_config()
+    if err:
+        return err
+
+    data = _get(
+        f"{_account_id()}/adimages",
+        {"fields": "hash,name,url,status,width,height,created_time", "limit": 200},
+    )
+    if "error" in data:
+        return data
+    images = data.get("data", [])
+    return {"images": images, "count": len(images)}
+
+
 def check_connection() -> dict:
     """Test Meta credentials and return connection status."""
     missing = []

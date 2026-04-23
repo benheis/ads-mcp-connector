@@ -254,6 +254,294 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        # ── Meta Writes ──
+        Tool(
+            name="meta_update_campaign_status",
+            description="Pause or enable a Meta Ads campaign.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "campaign_id": {"type": "string", "description": "Meta campaign ID"},
+                    "status": {"type": "string", "description": "ACTIVE or PAUSED"},
+                },
+                "required": ["campaign_id", "status"],
+            },
+        ),
+        Tool(
+            name="meta_update_ad_set_status",
+            description="Pause or enable a Meta Ads ad set.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ad_set_id": {"type": "string", "description": "Meta ad set ID"},
+                    "status": {"type": "string", "description": "ACTIVE or PAUSED"},
+                },
+                "required": ["ad_set_id", "status"],
+            },
+        ),
+        Tool(
+            name="meta_update_ad_status",
+            description="Pause or enable an individual Meta ad.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ad_id": {"type": "string", "description": "Meta ad ID"},
+                    "status": {"type": "string", "description": "ACTIVE or PAUSED"},
+                },
+                "required": ["ad_id", "status"],
+            },
+        ),
+        Tool(
+            name="meta_update_budget",
+            description="Update budget on a Meta campaign (CBO) or ad set. For CBO ad sets, also sets per-ad-set daily min/max spend constraints.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "object_id": {"type": "string", "description": "Campaign ID or ad set ID"},
+                    "object_type": {"type": "string", "description": "campaign or ad_set"},
+                    "budget_type": {"type": "string", "description": "daily or lifetime"},
+                    "amount_dollars": {"type": "number", "description": "Budget amount in dollars"},
+                    "daily_min_dollars": {"type": "number", "description": "CBO ad set daily minimum spend (optional, ad_set only)"},
+                    "daily_max_dollars": {"type": "number", "description": "CBO ad set daily maximum spend cap (optional, ad_set only)"},
+                },
+                "required": ["object_id", "object_type", "budget_type", "amount_dollars"],
+            },
+        ),
+        Tool(
+            name="meta_create_campaign",
+            description="Create a new Meta Ads campaign. Defaults to PAUSED — always review before activating.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "objective": {"type": "string", "description": "OUTCOME_TRAFFIC, OUTCOME_LEADS, OUTCOME_SALES, OUTCOME_AWARENESS, OUTCOME_ENGAGEMENT, OUTCOME_APP_PROMOTION"},
+                    "budget_type": {"type": "string", "description": "daily or lifetime"},
+                    "amount_dollars": {"type": "number", "description": "Budget amount in dollars"},
+                    "status": {"type": "string", "default": "PAUSED", "description": "ACTIVE or PAUSED"},
+                    "special_ad_categories": {"type": "array", "items": {"type": "string"}, "description": "Required for housing, employment, credit ads. Pass [] if none."},
+                },
+                "required": ["name", "objective", "budget_type", "amount_dollars"],
+            },
+        ),
+        Tool(
+            name="meta_create_ad_set",
+            description="Create a new Meta Ads ad set inside a campaign. Defaults to PAUSED.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "campaign_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "optimization_goal": {"type": "string", "description": "OFFSITE_CONVERSIONS, LINK_CLICKS, REACH, IMPRESSIONS, LANDING_PAGE_VIEWS, LEAD_GENERATION"},
+                    "billing_event": {"type": "string", "default": "IMPRESSIONS"},
+                    "bid_strategy": {"type": "string", "default": "LOWEST_COST_WITHOUT_CAP", "description": "LOWEST_COST_WITHOUT_CAP, LOWEST_COST_WITH_BID_CAP, COST_CAP"},
+                    "daily_budget_dollars": {"type": "number", "description": "Daily budget in dollars (use this or lifetime_budget_dollars)"},
+                    "lifetime_budget_dollars": {"type": "number", "description": "Lifetime budget in dollars"},
+                    "targeting": {"type": "object", "description": "Meta targeting spec dict (geo, age, interests, etc.)"},
+                    "start_time": {"type": "string", "description": "ISO 8601 start time e.g. '2025-05-01T00:00:00-0500'"},
+                    "end_time": {"type": "string", "description": "ISO 8601 end time (optional)"},
+                    "status": {"type": "string", "default": "PAUSED"},
+                },
+                "required": ["campaign_id", "name", "optimization_goal"],
+            },
+        ),
+        Tool(
+            name="meta_create_ad",
+            description="Create a Meta ad linking to an existing ad creative. Defaults to PAUSED — review creative before activating.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ad_set_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "creative_id": {"type": "string", "description": "ID from meta_create_ad_creative"},
+                    "status": {"type": "string", "default": "PAUSED"},
+                },
+                "required": ["ad_set_id", "name", "creative_id"],
+            },
+        ),
+        Tool(
+            name="meta_upload_image",
+            description="Upload a static image to the Meta ad account image library. Returns image_hash for use in meta_create_ad_creative.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Absolute path to JPG or PNG file on the local machine"},
+                },
+                "required": ["file_path"],
+            },
+        ),
+        Tool(
+            name="meta_upload_video",
+            description="Upload a video to the Meta ad account video library. Returns video_id for use in meta_create_ad_creative. Encoding is async — video may take a few minutes to become available.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Absolute path to MP4 or MOV file on the local machine"},
+                    "title": {"type": "string", "description": "Optional title for the video in the library"},
+                },
+                "required": ["file_path"],
+            },
+        ),
+        Tool(
+            name="meta_create_ad_creative",
+            description="Create a Meta ad creative using an uploaded image or video. Returns creative_id for use in meta_create_ad.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Internal name for the creative"},
+                    "page_id": {"type": "string", "description": "Facebook Page ID associated with the ad account"},
+                    "link_url": {"type": "string", "description": "Destination URL for the ad"},
+                    "message": {"type": "string", "description": "Primary ad copy (body text)"},
+                    "headline": {"type": "string", "description": "Ad headline"},
+                    "description": {"type": "string", "description": "Ad description (optional)"},
+                    "call_to_action_type": {"type": "string", "default": "LEARN_MORE", "description": "LEARN_MORE, SHOP_NOW, SIGN_UP, GET_QUOTE, DOWNLOAD, CONTACT_US, APPLY_NOW, GET_OFFER"},
+                    "image_hash": {"type": "string", "description": "Image hash from meta_upload_image (use this or video_id)"},
+                    "video_id": {"type": "string", "description": "Video ID from meta_upload_video (use this or image_hash)"},
+                },
+                "required": ["name", "page_id", "link_url", "message", "headline"],
+            },
+        ),
+        Tool(
+            name="meta_get_ad_images",
+            description="List all images in the Meta ad account image library with their hashes, URLs, and dimensions.",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+        ),
+        # ── Google Writes ──
+        Tool(
+            name="google_list_negative_keywords",
+            description="List existing negative keywords at campaign or ad group level. Returns criterion IDs needed for removal.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "campaign_id": {"type": "string", "description": "Filter to a specific campaign (optional)"},
+                    "ad_group_id": {"type": "string", "description": "Filter to a specific ad group — also returns ad group negatives when set"},
+                },
+                "required": [],
+            },
+        ),
+        Tool(
+            name="google_add_negative_keywords",
+            description="Add negative keywords to a Google Ads campaign or ad group.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "keywords": {"type": "array", "items": {"type": "string"}, "description": "List of keyword strings to add as negatives"},
+                    "match_type": {"type": "string", "description": "EXACT, PHRASE, or BROAD"},
+                    "level": {"type": "string", "description": "campaign or ad_group"},
+                    "campaign_id": {"type": "string", "description": "Required for both levels"},
+                    "ad_group_id": {"type": "string", "description": "Required when level is ad_group"},
+                },
+                "required": ["keywords", "match_type", "level", "campaign_id"],
+            },
+        ),
+        Tool(
+            name="google_remove_negative_keywords",
+            description="Remove negative keywords by criterion ID. Get criterion IDs from google_list_negative_keywords first.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "criterion_ids": {"type": "array", "items": {"type": "string"}, "description": "List of criterion_id values to remove"},
+                    "level": {"type": "string", "description": "campaign or ad_group"},
+                    "campaign_id": {"type": "string", "description": "Required for both levels"},
+                    "ad_group_id": {"type": "string", "description": "Required when level is ad_group"},
+                },
+                "required": ["criterion_ids", "level", "campaign_id"],
+            },
+        ),
+        Tool(
+            name="google_update_campaign_status",
+            description="Pause or enable a Google Ads campaign.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "campaign_id": {"type": "string"},
+                    "status": {"type": "string", "description": "ENABLED or PAUSED"},
+                },
+                "required": ["campaign_id", "status"],
+            },
+        ),
+        Tool(
+            name="google_update_ad_group_status",
+            description="Pause or enable a Google Ads ad group.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ad_group_id": {"type": "string"},
+                    "status": {"type": "string", "description": "ENABLED or PAUSED"},
+                },
+                "required": ["ad_group_id", "status"],
+            },
+        ),
+        Tool(
+            name="google_update_keyword_bid",
+            description="Update the max CPC bid for a positive keyword. Get criterion_id from google_get_keywords.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ad_group_id": {"type": "string"},
+                    "criterion_id": {"type": "string", "description": "Keyword criterion ID from google_get_keywords"},
+                    "bid_dollars": {"type": "number", "description": "New max CPC in account currency (e.g. 1.50)"},
+                },
+                "required": ["ad_group_id", "criterion_id", "bid_dollars"],
+            },
+        ),
+        Tool(
+            name="google_update_campaign_budget",
+            description="Update the daily budget for a Google Ads campaign.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "campaign_id": {"type": "string"},
+                    "daily_budget_dollars": {"type": "number", "description": "New daily budget in account currency"},
+                },
+                "required": ["campaign_id", "daily_budget_dollars"],
+            },
+        ),
+        Tool(
+            name="google_create_campaign",
+            description="Create a new Google Ads campaign with a budget. Defaults to PAUSED — always review before activating.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "channel_type": {"type": "string", "description": "SEARCH, DISPLAY, or PERFORMANCE_MAX"},
+                    "bidding_strategy": {"type": "string", "description": "MAXIMIZE_CONVERSIONS, TARGET_CPA, MANUAL_CPC, MAXIMIZE_CONVERSION_VALUE"},
+                    "daily_budget_dollars": {"type": "number"},
+                    "status": {"type": "string", "default": "PAUSED"},
+                    "target_cpa_dollars": {"type": "number", "description": "Required when bidding_strategy is TARGET_CPA"},
+                },
+                "required": ["name", "channel_type", "bidding_strategy", "daily_budget_dollars"],
+            },
+        ),
+        Tool(
+            name="google_create_ad_group",
+            description="Create an ad group inside an existing Google Ads campaign.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "campaign_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "cpc_bid_dollars": {"type": "number", "description": "Default max CPC for keywords in this group", "default": 1.0},
+                    "status": {"type": "string", "default": "ENABLED"},
+                },
+                "required": ["campaign_id", "name"],
+            },
+        ),
+        Tool(
+            name="google_create_responsive_search_ad",
+            description="Create a Responsive Search Ad (RSA) in an ad group. The ad is created PAUSED — review before enabling.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ad_group_id": {"type": "string"},
+                    "headlines": {"type": "array", "items": {"type": "string"}, "description": "3–15 headline strings, max 30 chars each"},
+                    "descriptions": {"type": "array", "items": {"type": "string"}, "description": "2–4 description strings, max 90 chars each"},
+                    "final_url": {"type": "string", "description": "Landing page URL"},
+                    "path1": {"type": "string", "description": "Display URL path 1 (optional, max 15 chars)"},
+                    "path2": {"type": "string", "description": "Display URL path 2 (optional, max 15 chars)"},
+                },
+                "required": ["ad_group_id", "headlines", "descriptions", "final_url"],
+            },
+        ),
     ]
 
 
@@ -318,6 +606,155 @@ def _dispatch(name: str, args: dict) -> dict:
 
     if name == "meta_get_monthly_reach":
         return meta_ads.get_monthly_reach(months=args.get("months", 13))
+
+    # ── Meta Writes ──
+    if name == "meta_update_campaign_status":
+        return meta_ads.update_campaign_status(args["campaign_id"], args["status"])
+
+    if name == "meta_update_ad_set_status":
+        return meta_ads.update_ad_set_status(args["ad_set_id"], args["status"])
+
+    if name == "meta_update_ad_status":
+        return meta_ads.update_ad_status(args["ad_id"], args["status"])
+
+    if name == "meta_update_budget":
+        return meta_ads.update_budget(
+            object_id=args["object_id"],
+            object_type=args["object_type"],
+            budget_type=args["budget_type"],
+            amount_dollars=args["amount_dollars"],
+            daily_min_dollars=args.get("daily_min_dollars"),
+            daily_max_dollars=args.get("daily_max_dollars"),
+        )
+
+    if name == "meta_create_campaign":
+        return meta_ads.create_campaign(
+            name=args["name"],
+            objective=args["objective"],
+            budget_type=args["budget_type"],
+            amount_dollars=args["amount_dollars"],
+            status=args.get("status", "PAUSED"),
+            special_ad_categories=args.get("special_ad_categories", []),
+        )
+
+    if name == "meta_create_ad_set":
+        return meta_ads.create_ad_set(
+            campaign_id=args["campaign_id"],
+            name=args["name"],
+            optimization_goal=args["optimization_goal"],
+            billing_event=args.get("billing_event", "IMPRESSIONS"),
+            bid_strategy=args.get("bid_strategy", "LOWEST_COST_WITHOUT_CAP"),
+            daily_budget_dollars=args.get("daily_budget_dollars"),
+            lifetime_budget_dollars=args.get("lifetime_budget_dollars"),
+            targeting=args.get("targeting"),
+            start_time=args.get("start_time"),
+            end_time=args.get("end_time"),
+            status=args.get("status", "PAUSED"),
+        )
+
+    if name == "meta_create_ad":
+        return meta_ads.create_ad(
+            ad_set_id=args["ad_set_id"],
+            name=args["name"],
+            creative_id=args["creative_id"],
+            status=args.get("status", "PAUSED"),
+        )
+
+    if name == "meta_upload_image":
+        return meta_ads.upload_image(file_path=args["file_path"])
+
+    if name == "meta_upload_video":
+        return meta_ads.upload_video(
+            file_path=args["file_path"],
+            title=args.get("title"),
+        )
+
+    if name == "meta_create_ad_creative":
+        return meta_ads.create_ad_creative(
+            name=args["name"],
+            page_id=args["page_id"],
+            link_url=args["link_url"],
+            message=args["message"],
+            headline=args["headline"],
+            description=args.get("description", ""),
+            call_to_action_type=args.get("call_to_action_type", "LEARN_MORE"),
+            image_hash=args.get("image_hash"),
+            video_id=args.get("video_id"),
+        )
+
+    if name == "meta_get_ad_images":
+        return meta_ads.get_ad_images()
+
+    # ── Google Writes ──
+    if name == "google_list_negative_keywords":
+        return google_ads.list_negative_keywords(
+            campaign_id=args.get("campaign_id"),
+            ad_group_id=args.get("ad_group_id"),
+        )
+
+    if name == "google_add_negative_keywords":
+        return google_ads.add_negative_keywords(
+            keywords=args["keywords"],
+            match_type=args["match_type"],
+            level=args["level"],
+            campaign_id=args["campaign_id"],
+            ad_group_id=args.get("ad_group_id"),
+        )
+
+    if name == "google_remove_negative_keywords":
+        return google_ads.remove_negative_keywords(
+            criterion_ids=args["criterion_ids"],
+            level=args["level"],
+            campaign_id=args["campaign_id"],
+            ad_group_id=args.get("ad_group_id"),
+        )
+
+    if name == "google_update_campaign_status":
+        return google_ads.update_campaign_status(args["campaign_id"], args["status"])
+
+    if name == "google_update_ad_group_status":
+        return google_ads.update_ad_group_status(args["ad_group_id"], args["status"])
+
+    if name == "google_update_keyword_bid":
+        return google_ads.update_keyword_bid(
+            ad_group_id=args["ad_group_id"],
+            criterion_id=args["criterion_id"],
+            bid_dollars=args["bid_dollars"],
+        )
+
+    if name == "google_update_campaign_budget":
+        return google_ads.update_campaign_budget(
+            campaign_id=args["campaign_id"],
+            daily_budget_dollars=args["daily_budget_dollars"],
+        )
+
+    if name == "google_create_campaign":
+        return google_ads.create_campaign(
+            name=args["name"],
+            channel_type=args["channel_type"],
+            bidding_strategy=args["bidding_strategy"],
+            daily_budget_dollars=args["daily_budget_dollars"],
+            status=args.get("status", "PAUSED"),
+            target_cpa_dollars=args.get("target_cpa_dollars"),
+        )
+
+    if name == "google_create_ad_group":
+        return google_ads.create_ad_group(
+            campaign_id=args["campaign_id"],
+            name=args["name"],
+            cpc_bid_dollars=args.get("cpc_bid_dollars", 1.0),
+            status=args.get("status", "ENABLED"),
+        )
+
+    if name == "google_create_responsive_search_ad":
+        return google_ads.create_responsive_search_ad(
+            ad_group_id=args["ad_group_id"],
+            headlines=args["headlines"],
+            descriptions=args["descriptions"],
+            final_url=args["final_url"],
+            path1=args.get("path1", ""),
+            path2=args.get("path2", ""),
+        )
 
     # ── Google ──
     if name == "google_get_account_overview":
